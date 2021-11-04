@@ -9,37 +9,40 @@ pub mod liftskit_membership_v4 {
     use super::*;
 
     pub fn create(ctx: Context<Create>, member_address: Pubkey) -> ProgramResult {
-        let base_account = &mut ctx.accounts.base_account;
-        let address = base_account.to_account_info().key;
-        base_account.members.push(*address);
+        let membership_account = &mut ctx.accounts.membership_account;
+        let address = membership_account.to_account_info().key;
+        membership_account.members.push(*address);
         Ok(())
     }
 
     pub fn add_member(ctx: Context<AddMember>, member_address: Pubkey) -> ProgramResult {
-        let base_account = &mut ctx.accounts.base_account;
-        let address = base_account.to_account_info().key;
-        base_account.members.push(*address);
+        let membership_account = &mut ctx.accounts.membership_account;
+        // let address = membership_account.to_account_info().key;
+        membership_account.members.push(member_address);
         Ok(())
     }
 
-    /**
-     * @todo: only pay user on the membership list
-     */
     pub fn pay_user(ctx: Context<PayUser>, interaction_fee: u64) -> ProgramResult {
-        // create cross-program-invocation to run the token txns
-        let cpi_accounts = Transfer {
-            from: ctx.accounts.from.to_account_info().clone(),
-            to: ctx.accounts.to.to_account_info().clone(),
-            authority: ctx.accounts.owner.clone(),
-        };
-
-        // TODO :
+        let membership_account = &mut ctx.accounts.membership_account;
+        
         // 1. check if they are a member
-        // 2. check they werent paid today
+        if membership_account.members.contains(ctx.accounts.to.to_account_info().key) {
+            msg!("User IS A MEMBER!");
 
-        let cpi_program = ctx.accounts.token_program.clone();
-        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-        token::transfer(cpi_ctx, interaction_fee)?;
+            // 2. check they were already paid today
+            
+            // create cross-program-invocation to run the token txns
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.from.to_account_info().clone(),
+                to: ctx.accounts.to.to_account_info().clone(),
+                authority: ctx.accounts.owner.clone(),
+            };
+    
+            let cpi_program = ctx.accounts.token_program.clone();
+            let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+            token::transfer(cpi_ctx, interaction_fee)?;
+        }
+
        
         Ok(())
     }
@@ -50,7 +53,7 @@ pub mod liftskit_membership_v4 {
 pub struct Create<'info> {
     // membership account
     #[account(init, payer = user, space = 64 + 64)]
-    pub base_account: Account<'info, BaseAccount>,
+    pub membership_account: Account<'info, MembershipAccount>,
 
     #[account(mut)]
     pub user: Signer<'info>,
@@ -60,26 +63,28 @@ pub struct Create<'info> {
 #[derive(Accounts)]
 pub struct AddMember<'info> {
     #[account(mut)]
-    pub base_account: Account<'info, BaseAccount>,
+    pub membership_account: Account<'info, MembershipAccount>,
 }
 
 #[derive(Accounts)]
 pub struct PayUser<'info> {
     #[account(mut, has_one = owner)]
     from: Account<'info, TokenAccount>,
-
+    
     #[account(mut, "from.mint == to.mint")]
     to: Account<'info, TokenAccount>,
     
     #[account(signer)]
     owner: AccountInfo<'info>,
     token_program: AccountInfo<'info>,
+
+    membership_account: Account<'info, MembershipAccount>,
 }
 
 
 // An account that goes inside a transaction instruction
 #[account]
-pub struct BaseAccount {
+pub struct MembershipAccount {
     pub members: Vec<Pubkey>,
 }
 

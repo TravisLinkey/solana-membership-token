@@ -47,7 +47,7 @@ describe("Token Tests", () => {
       baseAccount.publicKey,
       {
         accounts: {
-          baseAccount: baseAccount.publicKey,
+          membershipAccount: baseAccount.publicKey,
           user: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         },
@@ -55,33 +55,32 @@ describe("Token Tests", () => {
     });
 
     /* Fetch the account and check the value of count */
-    const account = await program.account.baseAccount.fetch(baseAccount.publicKey);
+    const account = await program.account.membershipAccount.fetch(baseAccount.publicKey);
     console.log('Count 0: ', account.members)
     assert.ok(account.members.length == 1);
     _baseAccount = baseAccount;
-
   });
 
   it("Adds member to the membership list.", async () => {
     const baseAccount = _baseAccount;
-
-  const newAccount = anchor.web3.Keypair.generate();
-    await program.rpc.addMember(newAccount.publicKey, {
+    await program.rpc.addMember(creatorTokenAcc, {
       accounts: {
-        baseAccount: baseAccount.publicKey,
+        membershipAccount: baseAccount.publicKey,
       },
     });
-
-    const account = await program.account.baseAccount.fetch(baseAccount.publicKey);
+    
+    const account = await program.account.membershipAccount.fetch(baseAccount.publicKey);
     console.log('Count 1: ', account.members)
     assert.ok(account.members.length == 2);
   });
-
-  it("God pays user account some tokens ", async () => {
+  
+  it("God pays valid member some tokens ", async () => {
+    const baseAccount = _baseAccount;
     const INTERACTION_FEE = 5;
 
     await program.rpc.payUser(new anchor.BN(INTERACTION_FEE), {
       accounts: {
+        membershipAccount: baseAccount.publicKey,
         from: god,
         to: creatorTokenAcc,
         owner: program.provider.wallet.publicKey,
@@ -89,22 +88,47 @@ describe("Token Tests", () => {
       },
     });
 
-
-    console.log('*************', {
-      from: god.toBase58(),
-      to: creatorTokenAcc.toBase58(),
-      tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
-      programId: program.programId.toBase58(),
-    });
-
     const godAccount = await serumCmn.getTokenAccount(program.provider, god);
     const toAccount = await serumCmn.getTokenAccount(program.provider, creatorTokenAcc);
     console.log('God Balance: ', godAccount.amount.toNumber());
-    console.log('To Account Balance: ', toAccount.amount.toNumber());
+    console.log(`To Account Balance: ${toAccount.amount.toNumber()}\n`);
 
     // verify tokens sent
     assert.ok(godAccount.amount == MINT_TOKENS - INTERACTION_FEE);
     assert.ok(toAccount.amount == INTERACTION_FEE);
+  });
+
+  it("God does not pay non-member any tokens ", async () => {
+    const baseAccount = _baseAccount;
+    const INTERACTION_FEE = 5;
+
+    // new user for membership and payment
+    // create a User to pay
+    const newAccount = anchor.web3.Keypair.generate();
+    const newTokenAccount = await serumCmn.createTokenAccount(
+      program.provider,
+      mint,
+      newAccount.publicKey
+    );
+
+    await program.rpc.payUser(new anchor.BN(INTERACTION_FEE), {
+      accounts: {
+        membershipAccount: baseAccount.publicKey,
+        from: god,
+        to: newTokenAccount,
+        owner: program.provider.wallet.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      },
+    });
+
+    const godAccount = await serumCmn.getTokenAccount(program.provider, god);
+    const toAccount = await serumCmn.getTokenAccount(program.provider, newTokenAccount);
+    console.log('God Balance: ', godAccount.amount.toNumber());
+    console.log(`To Account Balance: ${toAccount.amount.toNumber()}\n`);
+
+    // verify tokens sent
+    assert.ok(godAccount.amount == MINT_TOKENS - INTERACTION_FEE);
+    assert.ok(toAccount.amount == 0);
   });
 
 });
